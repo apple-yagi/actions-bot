@@ -7,4 +7,9 @@ require (
 	github.com/slack-go/slack v0.10.2
 )
 
-require github.com/gorilla/websocket v1.5.0 // indirect
+require github.com/jmespath/go-jmespath v0.4.0 // indirect
+
+require (
+	github.com/aws/aws-sdk-go v1.43.7
+	github.com/gorilla/websocket v1.5.0 // indirect
+)
