@@ -1,0 +1,14 @@
+{
+  "Architectures": ["x86_64"],
+  "Description": "Kick github actions from slack",
+  "FunctionName": "actions-bot",
+  "Handler": "bin/main",
+  "MemorySize": 512,
+  "Role": "arn:aws:iam::054984637815:role/service-role/actions-bot-role-7b41xwzu",
+  "Runtime": "go1.x",
+  "Tags": {},
+  "Timeout": 15,
+  "TracingConfig": {
+    "Mode": "PassThrough"
+  }
+}
