@@ -3,9 +3,9 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"io/ioutil"
 	"log"
 	"net/http"
+	"strings"
 
 	"os"
 
@@ -26,11 +26,11 @@ type Request events.APIGatewayProxyRequest
 type Response events.APIGatewayProxyResponse
 
 type DispatchClientPayload struct {
-	Ref string `json:"ref"`
+	Ref string `label:"デプロイするブランチ名" json:"ref"`
 }
 
 type DispatchRequestBody struct {
-	EventType     string                 `json:"event_type"`
+	EventType     string                 `label:"repository_dispatchのtype" json:"event_type"`
 	ClientPayload *DispatchClientPayload `json:"client_payload"`
 }
 
@@ -66,18 +66,16 @@ func handleRequest(request Request) (*Response, error) {
 		log.Println("AppMentionEvent")
 		log.Println(ev.Text)
 
-		// デバッグ用に🐱のスタンプをメッセージに付与
-		if err := api.AddReaction(ReactionAnimal, slack.NewRefToMessage(ev.Channel, ev.TimeStamp)); err != nil {
-			log.Println(err.Error())
-			return newFailedResponse(), nil
-		}
-
 		// Dispatch Github Actions
 		url := os.Getenv("GITHUB_ACTIONS_URL")
+
+		// ev.Text format:@actions_bot <branch_name>
+		splitText := strings.Split(ev.Text, " ")
+		branchName := splitText[1]
 		body := &DispatchRequestBody{
 			EventType: "deploy",
 			ClientPayload: &DispatchClientPayload{
-				Ref: "main",
+				Ref: branchName,
 			},
 		}
 		jsonString, err := json.Marshal(body)
@@ -101,10 +99,13 @@ func handleRequest(request Request) (*Response, error) {
 			log.Println(err.Error())
 			return newFailedResponse(), nil
 		}
-		respbody, _ := ioutil.ReadAll(resp.Body)
 		defer resp.Body.Close()
 
-		log.Println(string(respbody))
+		// Github Actionsのスタートを通知する
+		if _, _, err := api.PostMessage(ev.Channel, slack.MsgOptionText("<@"+ev.User+"> "+branchName+"ブランチのデプロイを開始します", false)); err != nil {
+			log.Println(err.Error())
+			return newFailedResponse(), nil
+		}
 
 		return &Response{StatusCode: 200}, nil
 	}
