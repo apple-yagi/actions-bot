@@ -3,7 +3,8 @@
   "Description": "Kick github actions from slack",
   "Environment": {
     "Variables": {
-      "SECRET_NAME": "apple-yagi/actions-bot"
+      "SECRET_ID": "apple-yagi/actions-bot",
+      "GITHUB_ACTIONS_URL": "https://api.github.com/repos/apple-yagi/monofront/dispatches"
     }
   },
   "FunctionName": "actions-bot",

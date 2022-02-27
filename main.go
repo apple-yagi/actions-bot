@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"io/ioutil"
 	"log"
+	"net/http"
 
 	"os"
 
@@ -16,14 +19,23 @@ import (
 	"github.com/slack-go/slack/slackevents"
 )
 
+const Region = "ap-northeast-1"
+const ReactionAnimal = "cat"
+
 type Request events.APIGatewayProxyRequest
 type Response events.APIGatewayProxyResponse
 
-const REGION = "ap-northeast-1"
-const ReactionAnimal = "cat"
+type DispatchClientPayload struct {
+	Ref string `json:"ref"`
+}
+
+type DispatchRequestBody struct {
+	EventType     string                 `json:"event_type"`
+	ClientPayload *DispatchClientPayload `json:"client_payload"`
+}
 
 func handleRequest(request Request) (*Response, error) {
-	slackBotToken, err := getSlackBotToken()
+	slackBotToken, githubAccessToken, err := getSecretValue(os.Getenv("SECRET_ID"))
 	if err != nil {
 		log.Println(err.Error())
 		return newFailedResponse(), nil
@@ -52,10 +64,48 @@ func handleRequest(request Request) (*Response, error) {
 	switch ev := eventsAPIEvent.InnerEvent.Data.(type) {
 	case *slackevents.AppMentionEvent:
 		log.Println("AppMentionEvent")
+		log.Println(ev.Text)
+
+		// デバッグ用に🐱のスタンプをメッセージに付与
 		if err := api.AddReaction(ReactionAnimal, slack.NewRefToMessage(ev.Channel, ev.TimeStamp)); err != nil {
 			log.Println(err.Error())
 			return newFailedResponse(), nil
 		}
+
+		// Dispatch Github Actions
+		url := os.Getenv("GITHUB_ACTIONS_URL")
+		body := &DispatchRequestBody{
+			EventType: "deploy",
+			ClientPayload: &DispatchClientPayload{
+				Ref: "main",
+			},
+		}
+		jsonString, err := json.Marshal(body)
+		if err != nil {
+			log.Println(err.Error())
+			return newFailedResponse(), nil
+		}
+
+		req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonString))
+		if err != nil {
+			log.Println(err.Error())
+			return newFailedResponse(), nil
+		}
+
+		req.Header.Set("Authorization", "token "+githubAccessToken)
+		req.Header.Set("Accept", "application/vnd.github.everest-preview+json")
+
+		client := new(http.Client)
+		resp, err := client.Do(req)
+		if err != nil {
+			log.Println(err.Error())
+			return newFailedResponse(), nil
+		}
+		respbody, _ := ioutil.ReadAll(resp.Body)
+		defer resp.Body.Close()
+
+		log.Println(string(respbody))
+
 		return &Response{StatusCode: 200}, nil
 	}
 
@@ -65,30 +115,29 @@ func handleRequest(request Request) (*Response, error) {
 	}, nil
 }
 
-func getSlackBotToken() (string, error) {
+func getSecretValue(secretId string) (string, string, error) {
 	sess, err := session.NewSession()
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
-	svc := secretsmanager.New(sess, aws.NewConfig().WithRegion(REGION))
-	secretName := os.Getenv("SECRET_NAME")
+	svc := secretsmanager.New(sess, aws.NewConfig().WithRegion(Region))
 	input := &secretsmanager.GetSecretValueInput{
-		SecretId:     aws.String(secretName),
+		SecretId:     aws.String(secretId),
 		VersionStage: aws.String("AWSCURRENT"),
 	}
 	result, err := svc.GetSecretValue(input)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	secretString := aws.StringValue(result.SecretString)
 	res := make(map[string]interface{})
 	if err := json.Unmarshal([]byte(secretString), &res); err != nil {
-		return "", err
+		return "", "", err
 	}
 
-	return res["SlackBotToken"].(string), nil
+	return res["slack_bot_token"].(string), res["github_access_token"].(string), nil
 }
 
 func newFailedResponse() *Response {
