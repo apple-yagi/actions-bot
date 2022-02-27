@@ -41,7 +41,7 @@ func handleRequest(request Request) (*Response, error) {
 		return newFailedResponse(), nil
 	}
 
-	api := slack.New(slackBotToken)
+	slackClient := slack.New(slackBotToken)
 
 	body := request.Body
 	eventsAPIEvent, err := slackevents.ParseEvent(json.RawMessage(body), slackevents.OptionNoVerifyToken())
@@ -69,15 +69,8 @@ func handleRequest(request Request) (*Response, error) {
 		// Dispatch Github Actions
 		url := os.Getenv("GITHUB_ACTIONS_URL")
 
-		// ev.Text format:@actions_bot <branch_name>
-		splitText := strings.Split(ev.Text, " ")
-		branchName := splitText[1]
-		body := &DispatchRequestBody{
-			EventType: "deploy",
-			ClientPayload: &DispatchClientPayload{
-				Ref: branchName,
-			},
-		}
+		// ev.Text format:@actions_bot <event_type> <branch_name>
+		body := convertEventTextToDispatchRequestBody(ev.Text)
 		jsonString, err := json.Marshal(body)
 		if err != nil {
 			log.Println(err.Error())
@@ -102,7 +95,7 @@ func handleRequest(request Request) (*Response, error) {
 		defer resp.Body.Close()
 
 		// Github Actionsのスタートを通知する
-		if _, _, err := api.PostMessage(ev.Channel, slack.MsgOptionText("<@"+ev.User+"> "+branchName+"ブランチのデプロイを開始します", false)); err != nil {
+		if _, _, err := slackClient.PostMessage(ev.Channel, slack.MsgOptionText("<@"+ev.User+"> デプロイを開始します", false)); err != nil {
 			log.Println(err.Error())
 			return newFailedResponse(), nil
 		}
@@ -139,6 +132,18 @@ func getSecretValue(secretId string) (string, string, error) {
 	}
 
 	return res["slack_bot_token"].(string), res["github_access_token"].(string), nil
+}
+
+func convertEventTextToDispatchRequestBody(eventText string) *DispatchRequestBody {
+	splitText := strings.Split(eventText, " ")
+	eventType := splitText[1]
+	ref := splitText[2]
+	return &DispatchRequestBody{
+		EventType: eventType,
+		ClientPayload: &DispatchClientPayload{
+			Ref: ref,
+		},
+	}
 }
 
 func newFailedResponse() *Response {
